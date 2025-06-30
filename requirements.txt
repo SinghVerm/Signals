@@ -1,4 +1,4 @@
+pandas
+openpyxl
 streamlit
 matplotlib
-pandas
-# any other dependencies
