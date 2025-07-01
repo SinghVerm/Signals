@@ -122,6 +122,95 @@ if use_confirmation:
 
     filtered = filtered[filtered['Date'].isin(valid_dates)]
 
+# === 30-Min Confirmation (Optional)
+st.markdown("### 30-Min Confirmation (Optional)")
+use_30_confirmation = st.checkbox("Enable 30-min candle condition")
+
+breakout_moves_30 = {}
+
+if use_30_confirmation:
+    logic_30 = st.radio("30-Min Condition", [
+        "Close Above First 30-min High",
+        "Close Below First 30-min Low",
+        "No Breakout (Neither Above Nor Below)",
+        "Goes Above Close Below",
+        "Goes Below Close Above"
+    ])
+    start_time_30 = st.time_input("30-min Start Time", datetime.time(9, 45))
+    end_time_30 = st.time_input("30-min End Time", datetime.time(10, 15))
+
+    valid_dates_30 = []
+    missing_30 = []
+
+    for date in filtered['Date'].unique():
+        df_day = df_30min[df_30min['date'] == date]
+
+        if df_day.empty:
+            missing_30.append(date)
+            continue
+
+        try:
+            first_candle = df_day.iloc[0]
+            high = first_candle['high']
+            low = first_candle['low']
+
+            df_window = df_day[
+                (df_day['time'].dt.time >= start_time_30) &
+                (df_day['time'].dt.time <= end_time_30) &
+                (df_day['date'] == date)
+            ]
+
+            condition_met = False
+            breakout_candle = None
+
+            for _, row in df_window.iterrows():
+                c_high = row['high']
+                c_low = row['low']
+                c_close = row['close']
+
+                if logic_30 == "Close Above First 30-min High":
+                    if c_close > high:
+                        condition_met = True
+                        breakout_candle = row
+                        break
+                elif logic_30 == "Close Below First 30-min Low":
+                    if c_close < low:
+                        condition_met = True
+                        breakout_candle = row
+                        break
+                elif logic_30 == "No Breakout (Neither Above Nor Below)":
+                    if (df_window['close'] <= high).all() and (df_window['close'] >= low).all():
+                        condition_met = True
+                        breakout_candle = df_window.iloc[0]
+                        break
+                elif logic_30 == "Goes Above Close Below":
+                    if c_high > high and c_close < high:
+                        condition_met = True
+                        breakout_candle = row
+                        break
+                elif logic_30 == "Goes Below Close Above":
+                    if c_low < low and c_close > low:
+                        condition_met = True
+                        breakout_candle = row
+                        break
+
+            if condition_met:
+                valid_dates_30.append(date)
+                if breakout_candle is not None:
+                    breakout_close = breakout_candle['close']
+                    last_close = df_day.iloc[-1]['close']
+                    move_value = round(last_close - breakout_close, 2)
+                    breakout_moves_30[date] = move_value
+
+        except:
+            continue
+
+    st.info(f"Out of {len(filtered)} matching days, {len(valid_dates_30)} matched 30-min confirmation condition.")
+    if missing_30:
+        st.warning(f"{len(missing_30)} days skipped due to missing 30-min data.")
+
+    filtered = filtered[filtered['Date'].isin(valid_dates_30)]
+
 # === Results Summary
 st.markdown(f"### Filtered Results: {len(filtered)} Days Matched")
 
