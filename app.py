@@ -17,15 +17,29 @@ def load_data():
     return summary, df_30, df_5
 
 summary, df_30min, df_5min = load_data()
+available_5min_dates = set(df_5min['date'].unique())
 
-st.title("📊 NIFTY Signal Analyzer")
+st.title("NIFTY Signal Analyzer")
 
 # === UI Filters
 signal_list = ['Any'] + sorted(summary['Signal'].dropna().unique())
 candle_list = ['Any'] + sorted(summary['Candles'].dropna().unique())
 
-signal = st.selectbox("📌 Select Signal", signal_list)
-candle_type = st.selectbox("🔯 Candle Type", candle_list)
+signal = st.selectbox("Select Signal", signal_list)
+candle_type = st.selectbox("Candle Type", candle_list)
+
+# === Prev_Move Filter
+if 'Prev_Move' in summary.columns:
+    label_mapping = {
+        "Very Strong Long": "Very Strong Long (>= 1.00%)",
+        "Moderate Long": "Moderate Long (0.40% to 1.00%)",
+        "Sideways": "Sideways (-0.40% to +0.40%)",
+        "Moderate Short": "Moderate Short (-0.40% to -1.00%)",
+        "Very Strong Short": "Very Strong Short (<= -1.00%)"
+    }
+    raw_values = summary['Prev_Move'].dropna().unique()
+    options = ['Any'] + [label_mapping[val] for val in raw_values if val in label_mapping]
+    selected_label = st.selectbox("Previous Day View", options)
 
 # === Filtering
 filtered = summary.copy()
@@ -33,12 +47,16 @@ if signal != "Any":
     filtered = filtered[filtered['Signal'] == signal]
 if candle_type != "Any":
     filtered = filtered[filtered['Candles'] == candle_type]
+if 'Prev_Move' in summary.columns and selected_label != "Any":
+    reverse_mapping = {v: k for k, v in label_mapping.items()}
+    selected_base = reverse_mapping[selected_label]
+    filtered = filtered[filtered['Prev_Move'] == selected_base]
 
-# === 5-Min Confirmation Filter
-st.markdown("### 🔍 5-Min Confirmation (Optional)")
+# === 5-Min Confirmation
+st.markdown("### 5-Min Confirmation (Optional)")
 use_confirmation = st.checkbox("Enable 5-min candle condition")
 
-breakout_moves = {}  # Store move from breakout candle to day's close
+breakout_moves = {}
 
 if use_confirmation:
     logic = st.radio("Condition", [
@@ -50,8 +68,13 @@ if use_confirmation:
     end_time = st.time_input("End Time", datetime.time(10, 10))
 
     valid_dates = []
+    missing_dates = []
 
     for date in filtered['Date'].unique():
+        if date not in available_5min_dates:
+            missing_dates.append(date)
+            continue
+
         try:
             first_30 = df_30min[df_30min['date'] == date].iloc[0]
             high = first_30['high']
@@ -84,7 +107,6 @@ if use_confirmation:
 
             if condition_met:
                 valid_dates.append(date)
-
                 if breakout_candle is not None:
                     breakout_close = breakout_candle['close']
                     last_close = df_5min[df_5min['date'] == date].iloc[-1]['close']
@@ -94,10 +116,14 @@ if use_confirmation:
         except:
             continue
 
+    st.info(f"Out of {len(filtered)} matching days, {len(valid_dates)} have 5-min data and are used for confirmation.")
+    if missing_dates:
+        st.warning(f"{len(missing_dates)} days skipped due to missing 5-min data.")
+
     filtered = filtered[filtered['Date'].isin(valid_dates)]
 
 # === Results Summary
-st.markdown(f"### ✅ Filtered Results: {len(filtered)} Days Matched")
+st.markdown(f"### Filtered Results: {len(filtered)} Days Matched")
 
 if len(filtered) > 0:
     move_counts = filtered['Move.1'].value_counts()
@@ -107,30 +133,30 @@ if len(filtered) > 0:
     long_pct = (long_count / total * 100) if total else 0
     short_pct = (short_count / total * 100) if total else 0
 
-    st.write(f"📈 **Long**: {long_count} ({long_pct:.2f}%)")
-    st.write(f"📉 **Short**: {short_count} ({short_pct:.2f}%)")
+    st.write(f"Long: {long_count} ({long_pct:.2f}%)")
+    st.write(f"Short: {short_count} ({short_pct:.2f}%)")
 
     if 'Move' in filtered.columns:
-        st.markdown("### 🖐️ Move in Points")
-        st.write(f"📊 Average Move (abs): {filtered['Move'].abs().mean():.2f} pts")
-        st.write(f"🔼 Max Move: {filtered['Move'].max():.2f} pts")
-        st.write(f"🔽 Min Move: {filtered['Move'].min():.2f} pts")
+        st.markdown("### Move in Points")
+        st.write(f"Average Move (abs): {filtered['Move'].abs().mean():.2f} pts")
+        st.write(f"Max Move: {filtered['Move'].max():.2f} pts")
+        st.write(f"Min Move: {filtered['Move'].min():.2f} pts")
 
     if use_confirmation and breakout_moves:
         filtered['5_Move'] = filtered['Date'].map(breakout_moves)
 
-    # === Format Date
     filtered_display = filtered.copy()
     filtered_display['Date'] = pd.to_datetime(filtered_display['Date']).dt.strftime("%d %b, %y")
 
     display_cols = ['Date', 'Signal', 'Candles', 'Move.1', 'Move']
     if '5_Move' in filtered.columns:
         display_cols.append('5_Move')
+    if 'Prev_Move' in filtered.columns:
+        display_cols.append('Prev_Move')
 
     st.dataframe(filtered_display[display_cols])
 
-    # === Periodic Accuracy
-    st.markdown("### 🗓️ Periodic Accuracy Breakdown")
+    st.markdown("### Periodic Accuracy Breakdown")
     period_option = st.selectbox("Group By", ["Month", "Quarter", "Year"])
 
     df = filtered.copy()
@@ -149,8 +175,7 @@ if len(filtered) > 0:
 
     st.dataframe(pivot[['Long', 'Short', 'Total', 'Long %', 'Short %']].sort_index())
 
-    # === Chart
-    st.markdown("### 📊 Accuracy Chart")
+    st.markdown("### Accuracy Chart")
     fig, ax = plt.subplots()
     pivot[['Long %', 'Short %']].plot(kind='bar', ax=ax)
     plt.xticks(rotation=45)
