@@ -25,7 +25,7 @@ signal_list = ['Any'] + sorted(summary['Signal'].dropna().unique())
 candle_list = ['Any'] + sorted(summary['Candles'].dropna().unique())
 
 signal = st.selectbox("📌 Select Signal", signal_list)
-candle_type = st.selectbox("🕯️ Candle Type", candle_list)
+candle_type = st.selectbox("🔯 Candle Type", candle_list)
 
 # === Filtering
 filtered = summary.copy()
@@ -37,6 +37,8 @@ if candle_type != "Any":
 # === 5-Min Confirmation Filter
 st.markdown("### 🔍 5-Min Confirmation (Optional)")
 use_confirmation = st.checkbox("Enable 5-min candle condition")
+
+breakout_moves = {}  # Store move from breakout candle to day's close
 
 if use_confirmation:
     logic = st.radio("Condition", [
@@ -61,19 +63,34 @@ if use_confirmation:
                 (df_5min['time'].dt.time <= end_time)
             ]
 
+            condition_met = False
+            breakout_candle = None
+
             if logic == "Close Above First 30-min High":
-                condition_met = (df_window['close'] > high).any()
+                breakout_rows = df_window[df_window['close'] > high]
+                if not breakout_rows.empty:
+                    condition_met = True
+                    breakout_candle = breakout_rows.iloc[0]
             elif logic == "Close Below First 30-min Low":
-                condition_met = (df_window['close'] < low).any()
+                breakout_rows = df_window[df_window['close'] < low]
+                if not breakout_rows.empty:
+                    condition_met = True
+                    breakout_candle = breakout_rows.iloc[0]
             elif logic == "No Breakout (Neither Above Nor Below)":
                 not_above = (df_window['close'] <= high).all()
                 not_below = (df_window['close'] >= low).all()
                 condition_met = not_above and not_below
-            else:
-                condition_met = False
+                breakout_candle = df_window.iloc[0] if condition_met else None
 
             if condition_met:
                 valid_dates.append(date)
+
+                if breakout_candle is not None:
+                    breakout_close = breakout_candle['close']
+                    last_close = df_5min[df_5min['date'] == date].iloc[-1]['close']
+                    move_value = round(last_close - breakout_close, 2)
+                    breakout_moves[date] = move_value
+
         except:
             continue
 
@@ -94,15 +111,23 @@ if len(filtered) > 0:
     st.write(f"📉 **Short**: {short_count} ({short_pct:.2f}%)")
 
     if 'Move' in filtered.columns:
-        st.markdown("### 📐 Move in Points")
+        st.markdown("### 🖐️ Move in Points")
         st.write(f"📊 Average Move (abs): {filtered['Move'].abs().mean():.2f} pts")
         st.write(f"🔼 Max Move: {filtered['Move'].max():.2f} pts")
         st.write(f"🔽 Min Move: {filtered['Move'].min():.2f} pts")
 
+    if use_confirmation and breakout_moves:
+        filtered['5_Move'] = filtered['Date'].map(breakout_moves)
+
     # === Format Date
     filtered_display = filtered.copy()
     filtered_display['Date'] = pd.to_datetime(filtered_display['Date']).dt.strftime("%d %b, %y")
-    st.dataframe(filtered_display[['Date', 'Signal', 'Candles', 'Move.1', 'Move']])
+
+    display_cols = ['Date', 'Signal', 'Candles', 'Move.1', 'Move']
+    if '5_Move' in filtered.columns:
+        display_cols.append('5_Move')
+
+    st.dataframe(filtered_display[display_cols])
 
     # === Periodic Accuracy
     st.markdown("### 🗓️ Periodic Accuracy Breakdown")
