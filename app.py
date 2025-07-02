@@ -157,7 +157,7 @@ enable_flag = st.checkbox("Enable flag-based filter (High/Mid/Low)")
 if enable_flag:
     level = st.selectbox("Touch Level", ["Any", "High", "Mid", "Yesterday Low"])
     condition = st.selectbox("Touch Result", ["Any", "Touch & Close Above", "Touch & Close Below", "No Touch"])
-    flag_candles = st.multiselect("30-min Candles to check", list(range(1, 10)), default=[2])
+    flag_candles = st.multiselect("30-min Candles to check", list(range(1, 10)), default=[1])
 
     if level != "Any" and condition != "Any":
         valid_flags = []
