@@ -112,7 +112,8 @@ if use_confirmation:
     missing_dates = []
 
     for date in filtered['Date'].unique():
-        if date not in available_5min_dates:
+        date_obj = pd.to_datetime(date).date()
+        if date_obj not in available_5min_dates:
             missing_dates.append(date)
             continue
 
@@ -121,7 +122,7 @@ if use_confirmation:
             high = first_30['high']
             low = first_30['low']
 
-            day_df = df_5min[df_5min['date'] == date].reset_index(drop=True)
+            day_df = df_5min[df_5min['date'] == date_obj].reset_index(drop=True)
             df_window = day_df.iloc[[i - 1 for i in candle_numbers if i - 1 < len(day_df)]]
 
             condition_met = False
@@ -147,7 +148,7 @@ if use_confirmation:
                 valid_dates.append(date)
                 if breakout_candle is not None:
                     breakout_close = breakout_candle['close']
-                    last_close = df_5min[df_5min['date'] == date].iloc[-1]['close']
+                    last_close = df_5min[df_5min['date'] == date_obj].iloc[-1]['close']
                     move_value = round(last_close - breakout_close, 2)
                     breakout_moves[date] = move_value
 
