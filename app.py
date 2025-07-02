@@ -13,15 +13,37 @@ def load_data():
 
     df_30['date'] = df_30['time'].dt.date
     df_5['date'] = df_5['time'].dt.date
-    summary['Date'] = pd.to_datetime(summary['Date']).dt.date
+    summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
     return summary, df_30, df_5
 
 summary, df_30min, df_5min = load_data()
+
+# === Start Year Filter
+summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
+date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
+start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
+summary = summary[summary['Date'].dt.year >= start_year]
+
+# === Debug: Inspect data loading
+st.write("Sample 5-min data:", df_5min.head())
+st.write("Unique 5-min dates:", df_5min['date'].unique()[:5])
 available_5min_dates = set(df_5min['date'].unique())
 
 st.title("NIFTY Signal Analyzer")
 
 # === UI Filters
+
+# Year range filter
+summary['Date'] = pd.to_datetime(summary['Date'])
+date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
+start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
+
+# Filter summary from selected year onward
+summary = summary[summary['Date'].dt.year >= start_year]
+summary = summary[pd.to_datetime(summary['Date']).dt.year >= start_year]
+
+# Filter summary by year
+summary = summary[pd.to_datetime(summary['Date']).dt.year >= start_year]
 signal_list = ['Any'] + sorted(summary['Signal'].dropna().unique())
 candle_list = ['Any'] + sorted(summary['Candles'].dropna().unique())
 
@@ -42,6 +64,7 @@ if 'Prev_Move' in summary.columns:
     selected_label = st.selectbox("Previous Day View", options)
 
 # === Filtering
+
 filtered = summary.copy()
 if signal != "Any":
     filtered = filtered[filtered['Signal'] == signal]
@@ -52,11 +75,30 @@ if 'Prev_Move' in summary.columns and selected_label != "Any":
     selected_base = reverse_mapping[selected_label]
     filtered = filtered[filtered['Prev_Move'] == selected_base]
 
-# === 5-Min Confirmation
+# === Debug: Inspect filtered summary dates
+st.write("Filtered dates:", filtered['Date'].unique()[:5])
+
+# === Debug: Inspect filtered summary dates
+
+filtered = summary.copy()
+if signal != "Any":
+    filtered = filtered[filtered['Signal'] == signal]
+if candle_type != "Any":
+    filtered = filtered[filtered['Candles'] == candle_type]
+if 'Prev_Move' in summary.columns and selected_label != "Any":
+    reverse_mapping = {v: k for k, v in label_mapping.items()}
+    selected_base = reverse_mapping[selected_label]
+    filtered = filtered[filtered['Prev_Move'] == selected_base]
+
+# === Initialize Flags
+use_confirmation = False
+use_30_confirmation = False
+breakout_moves = {}
+breakout_moves_30 = {}
+
+# === 5-Min Confirmation (Optional)
 st.markdown("### 5-Min Confirmation (Optional)")
 use_confirmation = st.checkbox("Enable 5-min candle condition")
-
-breakout_moves = {}
 
 if use_confirmation:
     logic = st.radio("Condition", [
@@ -64,8 +106,7 @@ if use_confirmation:
         "Close Below First 30-min Low",
         "No Breakout (Neither Above Nor Below)"
     ])
-    start_time = st.time_input("Start Time", datetime.time(9, 45))
-    end_time = st.time_input("End Time", datetime.time(10, 10))
+    candle_numbers = st.multiselect("5-min Candle Numbers (starting from 2nd)", options=list(range(2, 10)), default=[2])
 
     valid_dates = []
     missing_dates = []
@@ -80,11 +121,8 @@ if use_confirmation:
             high = first_30['high']
             low = first_30['low']
 
-            df_window = df_5min[
-                (df_5min['date'] == date) &
-                (df_5min['time'].dt.time >= start_time) &
-                (df_5min['time'].dt.time <= end_time)
-            ]
+            day_df = df_5min[df_5min['date'] == date].reset_index(drop=True)
+            df_window = day_df.iloc[[i - 1 for i in candle_numbers if i - 1 < len(day_df)]]
 
             condition_met = False
             breakout_candle = None
@@ -126,8 +164,6 @@ if use_confirmation:
 st.markdown("### 30-Min Confirmation (Optional)")
 use_30_confirmation = st.checkbox("Enable 30-min candle condition")
 
-breakout_moves_30 = {}
-
 if use_30_confirmation:
     logic_30 = st.radio("30-Min Condition", [
         "Close Above First 30-min High",
@@ -136,14 +172,13 @@ if use_30_confirmation:
         "Goes Above Close Below",
         "Goes Below Close Above"
     ])
-    start_time_30 = st.time_input("30-min Start Time", datetime.time(9, 45))
-    end_time_30 = st.time_input("30-min End Time", datetime.time(10, 15))
+    candle_numbers_30 = st.multiselect("30-min Candle Numbers (starting from 2nd)", options=list(range(2, 10)), default=[2])
 
     valid_dates_30 = []
     missing_30 = []
 
     for date in filtered['Date'].unique():
-        df_day = df_30min[df_30min['date'] == date]
+        df_day = df_30min[df_30min['date'] == pd.to_datetime(date).date()]
 
         if df_day.empty:
             missing_30.append(date)
@@ -154,11 +189,7 @@ if use_30_confirmation:
             high = first_candle['high']
             low = first_candle['low']
 
-            df_window = df_day[
-                (df_day['time'].dt.time >= start_time_30) &
-                (df_day['time'].dt.time <= end_time_30) &
-                (df_day['date'] == date)
-            ]
+            df_window = df_day.reset_index(drop=True).iloc[[i - 1 for i in candle_numbers_30 if i - 1 < len(df_day)]]
 
             condition_met = False
             breakout_candle = None
@@ -168,31 +199,17 @@ if use_30_confirmation:
                 c_low = row['low']
                 c_close = row['close']
 
-                if logic_30 == "Close Above First 30-min High":
-                    if c_close > high:
-                        condition_met = True
-                        breakout_candle = row
-                        break
-                elif logic_30 == "Close Below First 30-min Low":
-                    if c_close < low:
-                        condition_met = True
-                        breakout_candle = row
-                        break
+                if logic_30 == "Close Above First 30-min High" and c_close > high:
+                    condition_met = True; breakout_candle = row; break
+                elif logic_30 == "Close Below First 30-min Low" and c_close < low:
+                    condition_met = True; breakout_candle = row; break
                 elif logic_30 == "No Breakout (Neither Above Nor Below)":
                     if (df_window['close'] <= high).all() and (df_window['close'] >= low).all():
-                        condition_met = True
-                        breakout_candle = df_window.iloc[0]
-                        break
-                elif logic_30 == "Goes Above Close Below":
-                    if c_high > high and c_close < high:
-                        condition_met = True
-                        breakout_candle = row
-                        break
-                elif logic_30 == "Goes Below Close Above":
-                    if c_low < low and c_close > low:
-                        condition_met = True
-                        breakout_candle = row
-                        break
+                        condition_met = True; breakout_candle = df_window.iloc[0]; break
+                elif logic_30 == "Goes Above Close Below" and c_high > high and c_close < high:
+                    condition_met = True; breakout_candle = row; break
+                elif logic_30 == "Goes Below Close Above" and c_low < low and c_close > low:
+                    condition_met = True; breakout_candle = row; break
 
             if condition_met:
                 valid_dates_30.append(date)
@@ -235,18 +252,22 @@ if len(filtered) > 0:
         filtered['5_Move'] = filtered['Date'].map(breakout_moves)
 
     filtered_display = filtered.copy()
-    filtered_display['Date'] = pd.to_datetime(filtered_display['Date']).dt.strftime("%d %b, %y")
+    filtered_display['Date'] = pd.to_datetime(filtered_display['Date'], dayfirst=True)
+    filtered_display = filtered_display.sort_values(by="Date", ascending=False).reset_index(drop=True)
+    filtered_display['Formatted_Date'] = filtered_display['Date'].dt.strftime("%d %b, %y")
 
-    display_cols = ['Date', 'Signal', 'Candles', 'Move.1', 'Move']
+    display_cols = ['Formatted_Date', 'Signal', 'Candles', 'Move.1', 'Move']
     if '5_Move' in filtered.columns:
         display_cols.append('5_Move')
     if 'Prev_Move' in filtered.columns:
         display_cols.append('Prev_Move')
 
-    st.dataframe(filtered_display[display_cols])
+    filtered_display = filtered_display.sort_values(by="Date", ascending=False).reset_index(drop=True)
+
+    st.dataframe(filtered_display[display_cols].rename(columns={'Formatted_Date': 'Date'}))
 
     st.markdown("### Periodic Accuracy Breakdown")
-    period_option = st.selectbox("Group By", ["Month", "Quarter", "Year"])
+    period_option = st.selectbox("Group By", ["Month", "Quarter", "Year"], index=2)
 
     df = filtered.copy()
     df['Date'] = pd.to_datetime(df['Date'])
