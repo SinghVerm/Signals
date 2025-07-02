@@ -24,6 +24,12 @@ date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
 start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
 summary = summary[summary['Date'].dt.year >= start_year]
 
+# === Start Year Filter
+summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
+date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
+start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
+summary = summary[summary['Date'].dt.year >= start_year]
+
 # === Debug: Inspect data loading
 st.write("Sample 5-min data:", df_5min.head())
 st.write("Unique 5-min dates:", df_5min['date'].unique()[:5])
