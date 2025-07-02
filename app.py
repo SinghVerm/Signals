@@ -14,6 +14,7 @@ def load_data():
     df_30['date'] = df_30['time'].dt.date
     df_5['date'] = df_5['time'].dt.date
     summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
+    summary['date'] = summary['Date'].dt.date  # ensure Python date for comparisons
     return summary, df_30, df_5
 
 summary, df_30min, df_5min = load_data()
@@ -52,11 +53,9 @@ if 'Prev_Move' in summary.columns and selected_label != "Any":
     selected_base = reverse_mapping[selected_label]
     filtered = filtered[filtered['Prev_Move'] == selected_base]
 
-# === Initialize Flags
+# === Initialize Flags and containers
 use_confirmation = False
-use_30_confirmation = False
 breakout_moves = {}
-breakout_moves_30 = {}
 
 # === 5-Min Confirmation (Optional)
 st.markdown("### 5-Min Confirmation (Optional)")
@@ -68,60 +67,61 @@ if use_confirmation:
         "Close Below First 30-min Low",
         "No Breakout (Neither Above Nor Below)"
     ])
-    candle_numbers = st.multiselect("5-min Candle Numbers (starting from 2nd)", options=list(range(2, 10)), default=[2])
+    candle_numbers = st.multiselect(
+        "5-min Candle Numbers (starting from 2nd)",
+        options=list(range(2, 10)), default=[2]
+    )
 
     valid_dates = []
     missing_dates = []
 
-    for date in filtered['Date'].unique():
-        if date not in available_5min_dates:
-            missing_dates.append(date)
+    for day in filtered['date'].unique():  # use date objects
+        if day not in available_5min_dates:
+            missing_dates.append(day)
             continue
 
         try:
-            first_30 = df_30min[df_30min['date'] == date].iloc[0]
+            first_30 = df_30min[df_30min['date'] == day].iloc[0]
             high = first_30['high']
             low = first_30['low']
 
-            day_df = df_5min[df_5min['date'] == date].reset_index(drop=True)
-            df_window = day_df.iloc[[i - 1 for i in candle_numbers if i - 1 < len(day_df)]]
+            day_df = df_5min[df_5min['date'] == day].reset_index(drop=True)
+            window_idx = [i - 1 for i in candle_numbers if i - 1 < len(day_df)]
+            df_window = day_df.iloc[window_idx]
 
             condition_met = False
             breakout_candle = None
 
             if logic == "Close Above First 30-min High":
-                breakout_rows = df_window[df_window['close'] > high]
-                if not breakout_rows.empty:
-                    condition_met = True
-                    breakout_candle = breakout_rows.iloc[0]
+                rows = df_window[df_window['close'] > high]
             elif logic == "Close Below First 30-min Low":
-                breakout_rows = df_window[df_window['close'] < low]
-                if not breakout_rows.empty:
+                rows = df_window[df_window['close'] < low]
+            else:
+                rows = pd.DataFrame()
+                if (df_window['close'] <= high).all() and (df_window['close'] >= low).all():
                     condition_met = True
-                    breakout_candle = breakout_rows.iloc[0]
-            elif logic == "No Breakout (Neither Above Nor Below)":
-                not_above = (df_window['close'] <= high).all()
-                not_below = (df_window['close'] >= low).all()
-                condition_met = not_above and not_below
-                breakout_candle = df_window.iloc[0] if condition_met else None
+                    breakout_candle = df_window.iloc[0]
+
+            if not condition_met and not rows.empty:
+                condition_met = True
+                breakout_candle = rows.iloc[0]
 
             if condition_met:
-                valid_dates.append(date)
-                if breakout_candle is not None:
-                    breakout_close = breakout_candle['close']
-                    last_close = df_5min[df_5min['date'] == date].iloc[-1]['close']
-                    move_value = round(last_close - breakout_close, 2)
-                    breakout_moves[date] = move_value
+                valid_dates.append(day)
+                breakout_close = breakout_candle['close'] if breakout_candle is not None else None
+                if breakout_close is not None:
+                    last_close = df_5min[df_5min['date'] == day].iloc[-1]['close']
+                    breakout_moves[day] = round(last_close - breakout_close, 2)
 
-        except:
+        except Exception:
             continue
 
     st.info(f"Out of {len(filtered)} matching days, {len(valid_dates)} have 5-min data and are used for confirmation.")
     if missing_dates:
         st.warning(f"{len(missing_dates)} days skipped due to missing 5-min data.")
 
-    filtered = filtered[filtered['Date'].isin(valid_dates)]
-
+    filtered = filtered[filtered['date'].isin(valid_dates)]
+    
 # === 30-Min Confirmation (Optional)
 st.markdown("### 30-Min Confirmation (Optional)")
 use_30_confirmation = st.checkbox("Enable 30-min candle condition")
