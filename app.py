@@ -18,21 +18,16 @@ def load_data():
 
 summary, df_30min, df_5min = load_data()
 
-# === Start Year Filter
+# === Start Year Filter (de-duped)
 summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
 date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
 start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
 summary = summary[summary['Date'].dt.year >= start_year]
 
-# === Start Year Filter
-summary['Date'] = pd.to_datetime(summary['Date'], dayfirst=True)
-date_years = sorted(summary['Date'].dropna().dt.year.astype(int).unique())
-start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
-summary = summary[summary['Date'].dt.year >= start_year]
 
 # === Debug: Inspect data loading
-st.write("Sample 5-min data:", df_5min.head())
-st.write("Unique 5-min dates:", df_5min['date'].unique()[:5])
+# st.write("Sample 5-min data:", df_5min.head())
+# st.write("Unique 5-min dates:", df_5min['date'].unique()[:5])
 available_5min_dates = set(df_5min['date'].unique())
 
 st.title("NIFTY Signal Analyzer")
@@ -46,7 +41,6 @@ start_year = st.selectbox("Start Year", options=date_years[::-1], index=0)
 
 # Filter summary from selected year onward
 summary = summary[summary['Date'].dt.year >= start_year]
-summary = summary[pd.to_datetime(summary['Date']).dt.year >= start_year]
 
 # Filter summary by year
 summary = summary[pd.to_datetime(summary['Date']).dt.year >= start_year]
@@ -81,8 +75,6 @@ if 'Prev_Move' in summary.columns and selected_label != "Any":
     selected_base = reverse_mapping[selected_label]
     filtered = filtered[filtered['Prev_Move'] == selected_base]
 
-# === Debug: Inspect filtered summary dates
-st.write("Filtered dates:", filtered['Date'].unique()[:5])
 
 # === Debug: Inspect filtered summary dates
 
