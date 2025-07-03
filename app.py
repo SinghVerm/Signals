@@ -177,7 +177,7 @@ with colf1:
         if enable_flag:
             level = st.selectbox("Level", ["Any", "High", "Mid", "Low"], key="flag_level")
             condition = st.selectbox("Result", ["Any", "Touch & Close Above", "Touch & Close Below", "No Touch"], key="flag_result")
-            flag_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[1], key="flag_candles")
+            flag_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[2], key="flag_candles")
             if level != "Any" and condition != "Any":
                 valid_flags = []
                 for day in filtered["date"].unique():
