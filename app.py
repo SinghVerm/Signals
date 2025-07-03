@@ -57,23 +57,28 @@ if selected_prev != "Any":
 try:
     df_rules = pd.read_excel("Signals.xlsx")
     df_rules.columns = df_rules.columns.str.strip()
+    df_rules["Signal"] = df_rules["Signal"].ffill().astype(str).str.strip()
+    df_rules["View"] = df_rules["View"].ffill().astype(str).str.strip().str.lower()
+
     if signal != "Any":
         matched_rows = df_rules[df_rules["Signal"] == signal]
         if not matched_rows.empty:
             with st.expander("📘 Entry & Exit Rules", expanded=True):
-                for view_label, color in [("Long", "limegreen"), ("Short", "red")]:
-                    view_rows = matched_rows[matched_rows["View"].str.lower() == view_label.lower()]
+                for view_label, color in [("long", "limegreen"), ("short", "red")]:
+                    view_rows = matched_rows[matched_rows["View"] == view_label]
                     if not view_rows.empty:
-                        st.markdown(f"<span style='color:{color}; font-weight:bold'>🔹 {view_label} View</span>", unsafe_allow_html=True)
+                        st.markdown(f"<span style='color:{color}; font-weight:bold'>🔹 {view_label.capitalize()} View</span>", unsafe_allow_html=True)
                         col1, col2 = st.columns(2)
+
                         with col1:
                             st.markdown("**Entry Rules:**")
-                            for rule in view_rows["Entry"].dropna().unique():
-                                st.markdown(f"- {rule}")
+                            for entry in view_rows["Entry"].dropna():
+                                st.markdown(f"- {entry.strip()}")
+
                         with col2:
                             st.markdown("**Exit Rules:**")
-                            for rule in view_rows["Exit"].dropna().unique():
-                                st.markdown(f"- {rule}")
+                            for exit_rule in view_rows["Exit"].dropna():
+                                st.markdown(f"- {exit_rule.strip()}")
 except Exception as e:
     st.warning(f"Could not load rules: {e}")
 
