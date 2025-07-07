@@ -95,6 +95,7 @@ with colc1:
                 "Close Below First 30-min Low",
                 "No Breakout (Neither)"
             ])
+            nox_5 = st.checkbox("(search beyond 10:10)", value=False)
             valid_5, missing_5 = [], []
             for day in filtered["date"].unique():
                 if day not in available_5min:
@@ -104,21 +105,27 @@ with colc1:
                 if df30.empty: continue
                 h30, l30 = df30.iloc[0]["high"], df30.iloc[0]["low"]
                 df5 = df_5min[df_5min["date"] == day].sort_values("time").reset_index(drop=True)
-                window = df5.iloc[6:12]
-                match = False; candle = None
-                if logic_5 == "Close Above First 30-min High":
-                    hit = window[window["close"] > h30]
-                    if not hit.empty: match = True; candle = hit.iloc[0]
-                elif logic_5 == "Close Below First 30-min Low":
-                    hit = window[window["close"] < l30]
-                    if not hit.empty: match = True; candle = hit.iloc[0]
-                else:
-                    if window["close"].le(h30).all() and window["close"].ge(l30).all():
-                        match = True; candle = window.iloc[0]
+                window_end = "15:30" if nox_5 else "10:10"
+                window = df5[df5["time"].dt.time.between(pd.to_datetime("09:45").time(), pd.to_datetime(window_end).time())].reset_index(drop=True)
+                match = False; candle = None; candle_idx = None
+                for idx, row in window.iterrows():
+                    if logic_5 == "Close Above First 30-min High" and row["close"] > h30:
+                        match = True; candle = row; candle_idx = idx; break
+                    elif logic_5 == "Close Below First 30-min Low" and row["close"] < l30:
+                        match = True; candle = row; candle_idx = idx; break
+                    elif logic_5 == "No Breakout (Neither)":
+                        if (window["close"] <= h30).all() and (window["close"] >= l30).all():
+                            match = True; candle = row; candle_idx = idx; break
                 if match:
                     valid_5.append(day)
                     last_close = df5.iloc[-1]["close"]
                     breakout_5[day] = round(last_close - candle["close"], 2)
+                    # Add 5-min candle info (number and time, relative to window)
+                    if "5_Candle_Info" not in filtered.columns:
+                        filtered["5_Candle_Info"] = None
+                    candle_time = candle["time"].strftime("%H:%M")
+                    candle_number = candle_idx + 1
+                    filtered.loc[filtered["date"] == day, "5_Candle_Info"] = f"#{candle_number} ({candle_time})"
             filtered = filtered[filtered["date"].isin(valid_5)]
             if breakout_5:
                 filtered["5_Move"] = filtered["date"].map(breakout_5)
@@ -128,6 +135,7 @@ with colc2:
     with st.expander("🕐 30-Min Confirmation"):
         enable_30 = st.checkbox("Enable 30-min confirmation")
         breakout_30 = {}
+
         if enable_30:
             logic_30 = st.radio("Condition", [
                 "Close Above First 30-min High",
@@ -136,18 +144,36 @@ with colc2:
                 "Goes Above Close Below",
                 "Goes Below Close Above"
             ])
-            candle_nums = st.multiselect("Candle Numbers (from 2nd)", list(range(2, 10)), default=[2])
+
+            auto_30 = st.checkbox("Auto (search all 30-min candles between 09:15–15:15)", value=True)
+            candle_nums = st.multiselect(
+                "Candle Numbers (from 2nd)", list(range(2, 14)), default=[2], disabled=auto_30
+            )
+
             valid_30, missing_30 = [], []
+
             for day in filtered["date"].unique():
                 df_day = df_30min[df_30min["date"] == day]
                 if df_day.empty:
                     missing_30.append(day)
                     continue
+
+                df_day = df_day.sort_values("time").reset_index(drop=True)
                 high, low = df_day.iloc[0]["high"], df_day.iloc[0]["low"]
-                df_window = df_day.reset_index(drop=True).iloc[[i - 1 for i in candle_nums if i - 1 < len(df_day)]]
-                match = False; candle = None
+
+                if auto_30:
+                    df_window = df_day[
+                        df_day["time"].dt.time.between(pd.to_datetime("09:15").time(), pd.to_datetime("15:15").time())
+                    ].reset_index(drop=True)
+                else:
+                    indices = [i - 1 for i in candle_nums if 0 <= i - 1 < len(df_day)]
+                    df_window = df_day.iloc[indices]
+
+                match = False
+                candle = None
                 for _, row in df_window.iterrows():
                     ch, cl, cc = row["high"], row["low"], row["close"]
+
                     if logic_30 == "Close Above First 30-min High" and cc > high:
                         match = True; candle = row; break
                     elif logic_30 == "Close Below First 30-min Low" and cc < low:
@@ -159,14 +185,26 @@ with colc2:
                         match = True; candle = row; break
                     elif logic_30 == "Goes Below Close Above" and cl < low and cc > low:
                         match = True; candle = row; break
+
                 if match:
                     valid_30.append(day)
                     last_close = df_day.iloc[-1]["close"]
                     breakout_30[day] = round(last_close - candle["close"], 2)
+
+                    # Add candle time or number
+                    if "Candle_Info" not in filtered.columns:
+                        filtered["Candle_Info"] = None
+                    candle_time = candle["time"].strftime("%H:%M")
+                    candle_index = df_day[df_day["time"] == candle["time"]].index[0] + 1
+                    filtered.loc[filtered["date"] == day, "Candle_Info"] = f"#{candle_index} ({candle_time})"
+
             filtered = filtered[filtered["date"].isin(valid_30)]
             if breakout_30:
                 filtered["30_Move"] = filtered["date"].map(breakout_30)
             st.info(f"{len(valid_30)} passed, {len(missing_30)} missing 30-min data")
+
+
+
 
 # === Flag and Untouched Filters
 colf1, colf2 = st.columns(2)
@@ -177,15 +215,33 @@ with colf1:
         if enable_flag:
             level = st.selectbox("Level", ["Any", "High", "Mid", "Low"], key="flag_level")
             condition = st.selectbox("Result", ["Any", "Touch & Close Above", "Touch & Close Below", "No Touch"], key="flag_result")
-            flag_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[2], key="flag_candles")
+            auto_flag = st.checkbox("Auto (search all 30-min candles between 09:15–15:15)", key="flag_auto", value=True)
+            flag_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[1], key="flag_candles", disabled=auto_flag)
             if level != "Any" and condition != "Any":
                 valid_flags = []
+                flag_candle_info = {}
                 for day in filtered["date"].unique():
                     df_day = df_30min[df_30min["date"] == day].reset_index(drop=True)
-                    indices = [i - 1 for i in flag_candles if 0 <= i - 1 < len(df_day)]
-                    df_slice = df_day.iloc[indices]
-                    if any(df_slice[level] == condition):
+                    if auto_flag:
+                        df_slice = df_day[df_day["time"].dt.time.between(pd.to_datetime("09:15").time(), pd.to_datetime("15:15").time())]
+                    else:
+                        indices = [i - 1 for i in flag_candles if 0 <= i - 1 < len(df_day)]
+                        df_slice = df_day.iloc[indices]
+                    match_row = None
+                    for idx, row in df_slice.iterrows():
+                        if row[level] == condition:
+                            match_row = row
+                            match_idx = idx
+                            break
+                    if match_row is not None:
                         valid_flags.append(day)
+                        candle_num = match_idx + 1
+                        candle_time = match_row["time"].strftime("%H:%M")
+                        flag_candle_info[day] = f"#{candle_num} ({candle_time})"
+                if "Flag_Candle_Info" not in filtered.columns:
+                    filtered["Flag_Candle_Info"] = None
+                for day, info in flag_candle_info.items():
+                    filtered.loc[filtered["date"] == day, "Flag_Candle_Info"] = info
                 filtered = filtered[filtered["date"].isin(valid_flags)]
 
 with colf2:
@@ -194,20 +250,42 @@ with colf2:
         if enable_untouched:
             level = st.selectbox("Untouched Level", ["Any", "Untouched High", "Untouched Mid", "Untouched Low"], key="untouched_level")
             condition = st.selectbox("Result", ["Any", "Touch & Close Above", "Touch & Close Below", "No Touch"], key="untouched_result")
-            untouched_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[2], key="untouched_candles")
+            auto_untouched = st.checkbox("Auto (search all 30-min candles between 09:15–15:15)", key="untouched_auto", value=True)
+            untouched_candles = st.multiselect("Candle Numbers", list(range(1, 10)), default=[2], key="untouched_candles", disabled=auto_untouched)
             if level != "Any" and condition != "Any":
                 valid_flags = []
+                untouched_candle_info = {}
                 for day in filtered["date"].unique():
                     df_day = df_30min[df_30min["date"] == day].reset_index(drop=True)
-                    indices = [i - 1 for i in untouched_candles if 0 <= i - 1 < len(df_day)]
-                    df_slice = df_day.iloc[indices]
-                    if any(df_slice[level] == condition):
+                    if auto_untouched:
+                        df_slice = df_day[df_day["time"].dt.time.between(pd.to_datetime("09:15").time(), pd.to_datetime("15:15").time())]
+                    else:
+                        indices = [i - 1 for i in untouched_candles if 0 <= i - 1 < len(df_day)]
+                        df_slice = df_day.iloc[indices]
+                    match_row = None
+                    for idx, row in df_slice.iterrows():
+                        if row[level] == condition:
+                            match_row = row
+                            match_idx = idx
+                            break
+                    if match_row is not None:
                         valid_flags.append(day)
+                        candle_num = match_idx + 1
+                        candle_time = match_row["time"].strftime("%H:%M")
+                        untouched_candle_info[day] = f"#{candle_num} ({candle_time})"
+                if "Untouched_Candle_Info" not in filtered.columns:
+                    filtered["Untouched_Candle_Info"] = None
+                for day, info in untouched_candle_info.items():
+                    filtered.loc[filtered["date"] == day, "Untouched_Candle_Info"] = info
                 filtered = filtered[filtered["date"].isin(valid_flags)]
 
 
 # === Results Section
 st.markdown(f"### ✅ Filtered Results: {len(filtered)} Days")
+
+# Add 5_Move.1 column for direction based on 5_Move (must be before summary display)
+if "5_Move" in filtered.columns:
+    filtered["5_Move.1"] = filtered["5_Move"].apply(lambda x: "Long" if x > 0 else ("Short" if x < 0 else ""))
 
 if filtered.empty:
     st.warning("No matching data found.")
@@ -233,15 +311,43 @@ else:
 
 
     if "Move" in filtered.columns:
-        st.markdown("### Move Stats")
-        st.write(f"Avg Abs Move: {filtered['Move'].abs().mean():.2f} pts")
-        st.write(f"Max Move: {filtered['Move'].max():.2f} pts")
-        st.write(f"Min Move: {filtered['Move'].min():.2f} pts")
+        st.markdown("### 30M- Move Stats")
+        move_col = filtered["Move"].dropna()
+        long_moves = move_col[move_col > 0]
+        short_moves = move_col[move_col < 0]
+        st.write(f"Avg Long Move: {long_moves.mean():.2f} pts" if not long_moves.empty else "Avg Long Move: N/A")
+        st.write(f"Avg Short Move: {short_moves.mean():.2f} pts" if not short_moves.empty else "Avg Short Move: N/A")
+    if "5_Move" in filtered.columns:
+        st.markdown("### 5-Min Move Stats")
+        move5_col = filtered["5_Move"].dropna()
+        long5_moves = move5_col[move5_col > 0]
+        short5_moves = move5_col[move5_col < 0]
+        st.write(f"Avg Long 5-Min Move: {long5_moves.mean():.2f} pts" if not long5_moves.empty else "Avg Long 5-Min Move: N/A")
+        st.write(f"Avg Short 5-Min Move: {short5_moves.mean():.2f} pts" if not short5_moves.empty else "Avg Short 5-Min Move: N/A")
+        # 5-min accuracy (Long/Short count and percent) with color formatting
+        if "5_Move.1" in filtered.columns:
+            counts_5 = filtered["5_Move.1"].value_counts()
+            longs_5, shorts_5 = counts_5.get("Long", 0), counts_5.get("Short", 0)
+            total_5 = longs_5 + shorts_5
+            long_pct_5 = (longs_5 / total_5 * 100) if total_5 else 0
+            short_pct_5 = (shorts_5 / total_5 * 100) if total_5 else 0
+            diff_5 = abs(long_pct_5 - short_pct_5)
+            if diff_5 < 15:
+                long_color_5 = short_color_5 = "gold"
+            else:
+                long_color_5 = "limegreen" if long_pct_5 > short_pct_5 else "gray"
+                short_color_5 = "red" if short_pct_5 > long_pct_5 else "gray"
+            st.markdown(
+                f"<span style='color:{long_color_5}; font-weight:bold'>Long: {longs_5} ({long_pct_5:.2f}%)</span> | "
+                f"<span style='color:{short_color_5}; font-weight:bold'>Short: {shorts_5} ({short_pct_5:.2f}%)</span>",
+                unsafe_allow_html=True
+            )
 
     disp = filtered.sort_values("date", ascending=False).copy()
     disp["Date"] = pd.to_datetime(disp["Date"]).dt.strftime("%d %b, %y")
-    cols = ["Date", "Signal", "Candles", "Move.1", "Move"]
-    for c in ["Prev_Move", "High", "Mid", "Low", "Untouched High", "Untouched Mid", "Untouched Low", "5_Move", "30_Move"]:
+    # Remove 'Signal' and 'Prev_Move', add 'Candle_Info', '5_Candle_Info', 'Flag_Candle_Info', 'Untouched_Candle_Info', '5_Move.1' if present
+    cols = ["Date", "Candles", "Move.1", "Move"]
+    for c in ["High", "Mid", "Low", "Untouched High", "Untouched Mid", "Untouched Low", "5_Move", "5_Move.1", "30_Move", "Candle_Info", "5_Candle_Info", "Flag_Candle_Info", "Untouched_Candle_Info"]:
         if c in disp.columns:
             cols.append(c)
     st.dataframe(disp[cols].reset_index(drop=True))
