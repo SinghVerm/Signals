@@ -13,6 +13,27 @@ def load_data():
     summary["date"] = summary["Date"].dt.date
     df_30["date"] = df_30["time"].dt.date
     df_5["date"] = df_5["time"].dt.date
+    # Categorize Prev_Move with new Sideways split
+    if "Prev_Move" not in summary.columns or summary["Prev_Move"].isnull().all():
+        def categorize_prev_move(row):
+            move = row["Move"]
+            if move >= 1.0:
+                return "Very Strong Long"
+            elif 0.4 < move < 1.0:
+                return "Moderate Long"
+            elif 0 < move <= 0.4:
+                return "Long Sideways"
+            elif -0.4 <= move < 0:
+                return "Short Sideways"
+            elif -1.0 < move < -0.4:
+                return "Moderate Short"
+            elif move <= -1.0:
+                return "Very Strong Short"
+            elif move == 0:
+                return "None"
+            else:
+                return "Other"
+        summary["Prev_Move"] = summary.apply(categorize_prev_move, axis=1)
     return summary, df_30, df_5
 
 summary, df_30min, df_5min = load_data()
@@ -37,11 +58,13 @@ with st.expander("🔍 Filter Summary Data", expanded=True):
             move_map = {
                 "Very Strong Long": "Very Strong Long (>= 1.00%)",
                 "Moderate Long": "Moderate Long (0.40% to 1.00%)",
-                "Sideways": "Sideways (-0.40% to +0.40%)",
+                "Long Sideways": "Long Sideways (0% to +0.40%)",
+                "Short Sideways": "Short Sideways (0% to -0.40%)",
                 "Moderate Short": "Moderate Short (-0.40% to -1.00%)",
-                "Very Strong Short": "Very Strong Short (<= -1.00%)"
+                "Very Strong Short": "Very Strong Short (<= -1.00%)",
+                "None": "None (0%)"
             }
-            move_opts = ["Any"] + [move_map[m] for m in summary["Prev_Move"].dropna().unique() if m in move_map]
+            move_opts = ["Any"] + list(move_map.values())
             selected_prev = st.selectbox("Previous Day Move", move_opts)
 
 filtered = summary.copy()
