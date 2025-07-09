@@ -1,4 +1,6 @@
-pandas
+streamlit>=1.30.0
+pandas>=2.0.0
 openpyxl
-streamlit
-matplotlib
+plotly>=5.18.0
+numpy
+tqdm
