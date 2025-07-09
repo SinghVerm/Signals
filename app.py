@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import urllib.parse
+from datetime import date
 
 @st.cache_data
 def load_data():
@@ -42,6 +44,17 @@ available_30min = set(df_30min["date"].unique())
 
 st.set_page_config(layout="wide")
 st.title("📊 NIFTY Signal Analyzer")
+
+# Read selected date from query string
+query_params = st.query_params
+if "candlestick_date" in query_params:
+    selected_date_str = query_params["candlestick_date"][0]
+    if selected_date_str:  # Only try if not empty
+        try:
+            selected_date = pd.to_datetime(selected_date_str).date()
+            st.session_state["selected_date"] = selected_date
+        except Exception:
+            st.warning("Invalid date format in URL.")
 
 # === Summary Filters
 with st.expander("🔍 Filter Summary Data", expanded=True):
@@ -367,7 +380,7 @@ else:
             )
 
     disp = filtered.sort_values("date", ascending=False).copy()
-    disp["Date"] = pd.to_datetime(disp["Date"]).dt.strftime("%d %b, %y")
+    disp["Date"] = pd.to_datetime(disp["Date"]).dt.date
     # Remove 'Signal' and 'Prev_Move', add 'Candle_Info', '5_Candle_Info', 'Flag_Candle_Info', 'Untouched_Candle_Info', '5_Move.1' if present
     cols = ["Date", "Candles", "Move.1", "Move"]
     for c in ["High", "Mid", "Low", "Untouched High", "Untouched Mid", "Untouched Low", "5_Move", "5_Move.1", "30_Move", "Candle_Info", "5_Candle_Info", "Flag_Candle_Info", "Untouched_Candle_Info"]:
@@ -375,6 +388,51 @@ else:
             cols.append(c)
     st.dataframe(disp[cols].reset_index(drop=True))
 
+    # === Candlestick Chart Section with EMA_100 from file ===
+    import plotly.graph_objects as go
+    from datetime import timedelta
+    df_30 = pd.read_excel("NSE_NIFTY, 30 Prices.xlsx", parse_dates=["time"])
+    df_30["date"] = df_30["time"].dt.date
+    # Use filtered table's unique dates for dropdown
+    filtered_dates = disp["Date"].drop_duplicates().sort_values(ascending=False)
+    selected_date = st.selectbox("\U0001F4C5 View Candlestick Chart for:", filtered_dates)
+    today_data = df_30[df_30["date"] == selected_date]
+    prev_data = df_30[df_30["date"] == selected_date - timedelta(days=1)]
+    if not prev_data.empty:
+        prev_high = prev_data["high"].max()
+        prev_low = prev_data["low"].min()
+        prev_mid = (prev_high + prev_low) / 2
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=today_data["time"],
+            open=today_data["open"],
+            high=today_data["high"],
+            low=today_data["low"],
+            close=today_data["close"],
+            name="Candles",
+            increasing_line_color="limegreen",
+            increasing_fillcolor="limegreen",
+            decreasing_line_color="red",
+            decreasing_fillcolor="red"
+        ))
+        fig.add_trace(go.Scatter(
+            x=today_data["time"],
+            y=today_data["EMA_100"],
+            line=dict(color="orange", width=1),
+            name="EMA 100"
+        ))
+        fig.add_hline(y=prev_high, line=dict(color="white", width=2), opacity=0.5, name="Prev High")
+        fig.add_hline(y=prev_low, line=dict(color="white", width=2), opacity=0.5, name="Prev Low")
+        fig.add_hline(y=prev_mid, line=dict(color="blue", width=2), opacity=1.0, name="Prev Mid")
+        fig.update_layout(
+            title=f"NIFTY 30-min Candles: {selected_date}",
+            xaxis_title="Time",
+            yaxis_title="Price",
+            xaxis_rangeslider_visible=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Previous day data not found.")
 
     # === Accuracy by Period
 with st.expander("📈 Periodic Accuracy Breakdown"):
