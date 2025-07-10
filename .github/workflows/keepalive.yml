@@ -10,18 +10,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Configure Git
+      - name: Create empty commit
         run: |
-          git config user.name "keepalive-bot"
-          git config user.email "keepalive@example.com"
-
-      - name: Make empty commit
-        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
           git commit --allow-empty -m "keepalive: prevent Streamlit sleep [skip ci]" || echo "No changes to commit"
 
-      - name: Push to GitHub
+      - name: Push changes
         run: |
           git push
+        env:
+          GIT_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
