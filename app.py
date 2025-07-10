@@ -428,7 +428,10 @@ else:
             title=f"NIFTY 30-min Candles: {selected_date}",
             xaxis_title="Time",
             yaxis_title="Price",
-            xaxis_rangeslider_visible=False
+            xaxis_rangeslider_visible=False,
+            yaxis=dict(
+                showgrid=False  # This removes the horizontal grid lines at every 100 points
+            )
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
