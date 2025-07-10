@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create empty commit
         run: |
@@ -21,6 +23,4 @@ jobs:
 
       - name: Push changes
         run: |
-          git push
-        env:
-          GIT_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git push origin HEAD:main
